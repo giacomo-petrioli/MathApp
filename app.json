@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "MathApp",
+    "slug": "MathApp",
+    "version": "3.2.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "plugins": [
+      [
+        "expo-ads-admob",
+        {
+          "userTrackingPermission": "This identifier will be used to deliver personalized ads to you."
+        }
+      ]
+    ],
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ddeef5"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-2775422979545632~5047417787"
+      },
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#5ce1e6"
+      },
+      "package": "com.Giacomo.Mathapp",
+      "permissions" : [],
+      "versionCode": 15
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
