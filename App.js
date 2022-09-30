@@ -1,29 +1,92 @@
-import { View, Text, StatusBar, TouchableOpacity, Share, Dimensions, StyleSheet, ActivityIndicator, ScrollView, ToastAndroid, Image } from 'react-native';
+import { View, Text, StatusBar, TouchableOpacity, Share, Switch, Linking, Dimensions, StyleSheet, Clipboard, ActivityIndicator, ScrollView, ToastAndroid, Image } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { VictoryChart, VictoryTheme, VictoryLine } from "victory-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from '@react-navigation/native';
-import { AntDesign, MaterialIcons } from '@expo/vector-icons';
+import { AntDesign , MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Rect, Line, Path } from 'react-native-svg';
 import { Picker } from '@react-native-picker/picker';
-import React, { useState, useRef, } from "react";
+import React, { useState, useRef, useEffect, } from "react";
+//import BottomSheet from "react-native-easy-bottomsheet"; for test
 import * as StoreReview from 'expo-store-review';
 import { WebView } from 'react-native-webview';
-import MathJax from 'react-native-mathjax';
+//import MathJax from 'react-native-mathjax'; for test
+import MathJax from './localLibrary/mathJax'; //for eas build
+import BottomSheet from "./localLibrary/bottomSheet/index"; //for eas build
 
 var windowWidth = Dimensions.get('window').width;
+var windowHeigth = Dimensions.get('window').height;
 
-function HomeScreen({ navigation }) {
+function HomeScreen({ navigation, route }) {
 	const webViewRef = useRef();
 
 	var [mainKeyboard, setMainKeyboard] = useState(true);
+	const [isVisible, setVisible] = useState(false);
 
 	var [text, setText] = useState('');
 	var [lingua, setLingua] = useState('it');
 	var [loading, setLoading] = useState(false);
+	var [prevPormpt, setPrevPrompt] = useState('');
+	var [prevSolutionContainer, setPrevSolutionContainer] = useState({});
+	var [isEnabled, setIsEnabled] = useState(false);
+	var [selectedValue, setSelectedValue] = useState('')
+
+	var historyText = route?.params?.mathText;
+
+	useEffect(() => {
+		if (historyText == undefined) return
+		setText(text => historyText);
+		comando('deleteToGroupStart');
+		webViewRef.current.injectJavaScript("changeData('" + historyText.split("\\").join("\\\\") + "');")
+	}, [historyText])
+
+	useEffect(() => {
+		getSettings();
+	})
+
+	async function getSettings() {
+		try {
+			var registerHistory = await AsyncStorage.getItem('registerHistory');
+			if (registerHistory === null) {
+
+			}
+			var language = await AsyncStorage.getItem('lingua');
+			if (language === null) {
+
+			}
+		} catch (error) {
+
+		}
+		setIsEnabled(JSON.parse(registerHistory))
+		setSelectedValue(language)
+	}
+
+	async function changeLanguage(itemValue) {
+		setSelectedValue(selectedValue => itemValue)
+		try {
+			await AsyncStorage.setItem(
+				'lingua',
+				itemValue
+			);
+		} catch (error) {
+			alert(error)
+		}
+	}
+
+	async function toggleSwitch() {
+		setIsEnabled(isEnabled => !isEnabled);
+
+		try {
+			await AsyncStorage.setItem(
+				'registerHistory',
+				JSON.stringify(!isEnabled)
+			);
+		} catch (error) {
+			alert(error)
+		}
+	}
 
 	async function solveEquation() {
-
 		if (loading) {
 			return
 		}
@@ -44,7 +107,14 @@ function HomeScreen({ navigation }) {
 			return
 		}
 
+		if (prevPormpt == text) {
+			navigation.navigate("Solution", { solutionContainer: prevSolutionContainer });
+			updateHistory();
+			return;
+		}
+
 		var testo = text;
+		setPrevPrompt(prevPormpt => text);
 		setLoading(loading => true);
 
 		var testo = testo.split("\\").join("%60");
@@ -66,97 +136,41 @@ function HomeScreen({ navigation }) {
 		} catch (error) {
 			var value = "en";
 		}
-
-		var searchUrl = "https://mathsolver.microsoft.com/" + value + "/solve-problem/" + testo;
+		
+		var searchUrl = "https://mathapp-api-git-main-giacomo-petrioli.vercel.app/?text=" + testo + "&language=" + value;
 		var response = await fetch(searchUrl);
-
 		var htmlString = await response.text();
-		var a = htmlString.split('__NEXT_DATA__" type="application/json">');
-		var b = a[1].split("</script>");
-		var obj = JSON.parse(b[0]);
-		var solutionContainer = {};
+		var solutionContainer = JSON.parse(htmlString);
 
-		solutionContainer['error'] = obj.props.pageProps.response.mathSolverResult.isError;
-
-		if (solutionContainer['error']) {
-			solutionContainer['errorMessage'] = obj.props.pageProps.t.NoResults_MathError;
-		} else {
-			try {
-				solutionContainer['firstTitle'] = obj.props.pageProps.response.mathSolverResult.actions[0].actionName;
-				solutionContainer['firstSolution'] = obj.props.pageProps.response.mathSolverResult.actions[0].solution;
-				solutionContainer['hideStep'] = obj.props.pageProps.t.MathWeb_HideSteps;
-				solutionContainer['viewStep'] = obj.props.pageProps.t.MathWeb_ViewSteps;
-			} catch {
-				solutionContainer['title'] = "";
-				solutionContainer['firstSolution'] = "";
-			}
-
-			try {
-				var i = Object.keys(obj.props.pageProps.response.mathSolverResult.actions[0].templateSteps[0].steps).length;
-				for (var x = 0; x < i; x++) {
-					var expr = obj.props.pageProps.response.mathSolverResult.actions[0].templateSteps[0].steps[x].prevExpression;
-					var step = obj.props.pageProps.response.mathSolverResult.actions[0].templateSteps[0].steps[x].step;
-					if (x == 0) {
-						var pass = expr + step;
-					} else if (x == (i - 1)) {
-						var finalStep = obj.props.pageProps.response.mathSolverResult.actions[0].templateSteps[0].steps[x].expression;
-						var pass = pass + expr + step + finalStep;
-					} else {
-						var pass = pass + expr + step;
-					}
-				}
-				solutionContainer['stepFirstSolution'] = pass;
-			} catch {
-				solutionContainer['stepFirstSolution'] = "";
-			}
-
-			try {
-				solutionContainer['secondTitle'] = obj.props.pageProps.response.mathSolverResult.actions[1].actionName;
-				solutionContainer['secondSolution'] = obj.props.pageProps.response.mathSolverResult.actions[1].solution;
-			} catch {
-				solutionContainer['secondTitle'] = "";
-				solutionContainer['secondSolution'] = "";
-			}
-
-			try {
-				var i = Object.keys(obj.props.pageProps.response.mathSolverResult.actions[1].templateSteps[0].steps).length;
-				for (var x = 0; x < i; x++) {
-					var expr = obj.props.pageProps.response.mathSolverResult.actions[1].templateSteps[0].steps[x].prevExpression;
-					var step = obj.props.pageProps.response.mathSolverResult.actions[1].templateSteps[0].steps[x].step;
-					if (x == 0) {
-						var pass = expr + step;
-					} else if (x == (i - 1)) {
-						var finalStep = obj.props.pageProps.response.mathSolverResult.actions[1].templateSteps[0].steps[x].expression;
-						var pass = pass + expr + step + finalStep;
-					} else {
-						var pass = pass + expr + step;
-					}
-				}
-				solutionContainer['stepSecondSolution'] = pass;
-			} catch {
-				solutionContainer['stepSecondSolution'] = "";
-			}
-
-			var testGraph = obj.props.pageProps.response.mathSolverResult.allGraphData[0];
-			if (testGraph != undefined) {
-				solutionContainer['graphTitle'] = obj.props.pageProps.response.mathSolverResult.allGraphData[0].actionName;
-				solutionContainer['xMax'] = obj.props.pageProps.response.mathSolverResult.allGraphData[0].displayRange.maxX;
-				solutionContainer['yMax'] = obj.props.pageProps.response.mathSolverResult.allGraphData[0].displayRange.maxY;
-				solutionContainer['xMin'] = obj.props.pageProps.response.mathSolverResult.allGraphData[0].displayRange.minX;
-				solutionContainer['yMin'] = obj.props.pageProps.response.mathSolverResult.allGraphData[0].displayRange.minY;
-				solutionContainer['points'] = obj.props.pageProps.response.mathSolverResult.allGraphData[0].rawGraphData.curveData[0].pointGroups[0].points;
-			} else {
-				solutionContainer['graphTitle'] = "";
-				solutionContainer['xMax'] = 10;
-				solutionContainer['yMax'] = 10;
-				solutionContainer['xMin'] = 10;
-				solutionContainer['yMin'] = 10;
-				solutionContainer['points'] = "";
-			}
-		}
+		updateHistory();
 
 		navigation.navigate("Solution", { solutionContainer: solutionContainer });
+		setPrevSolutionContainer(prevSolutionContainer => solutionContainer);
 		setLoading(loading => false);
+	}
+
+	async function updateHistory() {
+		if (!isEnabled) return
+		try {
+			var pervHistory = await AsyncStorage.getItem('history');
+			if (pervHistory === null) {
+				pervHistory = ""
+			}
+		} catch (error) {
+
+		}
+
+		if (pervHistory.split(text).length == 1) {
+			pervHistory += "," + text
+			try {
+				await AsyncStorage.setItem(
+					'history',
+					pervHistory
+				);
+			} catch (error) {
+				alert(error)
+			}
+		}
 	}
 
 	function inserisci(buttonPressed) {
@@ -184,16 +198,115 @@ function HomeScreen({ navigation }) {
 		setText(text => data.nativeEvent.data);
 	}
 
+	async function onShare() {
+		try {
+			const result = await Share.share({
+				message: 'Check out MathApp app that gives me free step-by-step instuctions, graphs and more. Download it here: https://play.google.com/store/apps/details?id=com.Giacomo.Mathapp',
+			});
+		} catch (error) {
+			alert(error.message);
+		}
+	};
+
+	async function writeReview() {
+		if (StoreReview.isAvailableAsync()) {
+			await StoreReview.requestReview()
+		}
+	}
+
+	async function clearHistory() {
+		try {
+			await AsyncStorage.removeItem(
+				'history'
+			);
+		} catch (error) {
+			alert(error)
+		}
+	}
+
 	return (
-		<View style={{ marginTop: StatusBar.currentHeight, backgroundColor: "white", flex: 1 }}>
+		<View style={{ /*marginTop: StatusBar.currentHeight,*/ backgroundColor: "white", flex: 1 }}>
+			<BottomSheet
+				bottomSheetTitle={"Settings"}
+				bottomSheetIconColor="black"
+				bottomSheetStyle={{
+					backgroundColor: "white",
+					maxHeight: '70%',
+					minHeight: '70%',
+				}}
+				bottomSheetTitleStyle={{ color: 'black', fontSize: 25, padding: 5 }}
+				setBottomSheetVisible={setVisible}
+				bottomSheetVisible={isVisible}
+			>
+				<ScrollView>
+					<View style={styles.settingSeparator} />
+					<View style={{ height: 1, width: '100%', backgroundColor: '#E0E0E0' }} />
+					<TouchableOpacity style={styles.settingItem} onPress={() => onShare()}>
+						<Text style={styles.settingText}>Invite Friends</Text>
+					</TouchableOpacity>
+					<View style={styles.settingSeparator} />
+					<View style={styles.settingItem}>
+						<Text style={styles.settingText} onPress={() => getSettings()}>Language</Text>
+						<Picker selectedValue={selectedValue} style={{ height: 50, width: windowWidth - 200, position: 'absolute', right: 10 }} onValueChange={(itemValue) => changeLanguage(itemValue)}>
+							<Picker.Item label="English" value="en" />
+							<Picker.Item label="Italiano" value="it" />
+							<Picker.Item label="Deutsch" value="de" />
+							<Picker.Item label="Español" value="es" />
+							<Picker.Item label="Français" value="fr" />
+							<Picker.Item label="Português" value="pt" />
+							<Picker.Item label="Русский" value="ru" />
+							<Picker.Item label="简体中文" value="zh" />
+							<Picker.Item label="繁體中文" value="zh-Hant" />
+							<Picker.Item label="Bahasa Melayu" value="ms" />
+							<Picker.Item label="Bahasa Indonesia" value="id" />
+							<Picker.Item label="العربية" value="ar" />
+							<Picker.Item label="Türkçe" value="tr" />
+							<Picker.Item label="Polski" value="pl" />
+							<Picker.Item label="Nederlands" value="nl" />
+							<Picker.Item label="Slovenčina" value="sk" />
+							<Picker.Item label="Română" value="ro" />
+							<Picker.Item label="Tiếng Việt" value="vi" />
+							<Picker.Item label="ελληνικά" value="el" />
+							<Picker.Item label="ไทย" value="th" />
+						</Picker>
+					</View>
+					<View style={styles.settingItem}>
+						<Text style={styles.settingText}>Register History</Text>
+						<Switch
+							trackColor={{ false: "#767577", true: "#81b0ff" }}
+							thumbColor={isEnabled ? "#51b0ff" : "#f4f3f4"}
+							ios_backgroundColor="#3e3e3e"
+							onValueChange={toggleSwitch}
+							value={isEnabled}
+							style={{ position: 'absolute', right: 20 }}
+						/>
+					</View>
+					<TouchableOpacity style={styles.settingItem} onPress={() => clearHistory()}>
+						<Text style={styles.settingText}>Clear History</Text>
+					</TouchableOpacity>
+					<View style={styles.settingSeparator} />
+					<View style={styles.settingItem}>
+						<Text onPress={() => Linking.openURL("https://www.freeprivacypolicy.com/live/59fc809a-5a39-4ee2-a464-09efbf775b8e")} style={[styles.settingText, { fontWeight: 'normal', color: 'blue' }]}>Privacy and Cookies</Text>
+					</View>
+					<View style={styles.settingSeparator} />
+					<TouchableOpacity style={styles.settingItem} onPress={() => writeReview()}>
+						<Text style={styles.settingText}>Make a Review</Text>
+					</TouchableOpacity>
+				</ScrollView>
+			</BottomSheet>
 			<View style={{ position: 'absolute', marginTop: 30, marginLeft: windowWidth - 70 }}>
-				<TouchableOpacity onPress={() => navigation.navigate('Settings')}>
-					<AntDesign name="setting" size={40} color="darkgrey"/>
+				<TouchableOpacity onPress={() => setVisible(true)/*navigation.navigate('Settings')*/}>
+					<AntDesign name="setting" size={40} color="darkgrey" />
+				</TouchableOpacity>
+			</View>
+			<View style={{ position: 'absolute', marginTop: 30, marginLeft: 30 }}>
+				<TouchableOpacity onPress={() => navigation.navigate('History')}>
+					<MaterialCommunityIcons name="history" size={40} color="darkgrey" />
 				</TouchableOpacity>
 			</View>
 			<ActivityIndicator style={{ position: 'absolute', alignSelf: 'center', top: 30 }} animating={loading} color='#66ccff' size='large' />
 			<View>
-				<View style={styles.countContainer}/>
+				<View style={styles.countContainer} />
 				<View style={{ height: 200, padding: 10, marginTop: 50 }}>
 					<WebView
 						ref={webViewRef}
@@ -245,7 +358,7 @@ function HomeScreen({ navigation }) {
                 `}}
 					/>
 				</View>
-				<View style={{ marginTop: 25 }}>
+				<View style={{ marginTop: windowHeigth - 750 }}>
 					<View style={styles.toolbar}>
 						<TouchableOpacity style={styles.toolbarButton} onPress={() => comando('moveToPreviousChar')}>
 							<Svg width="64" height="60" viewBox="0 0 32 30" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -547,100 +660,6 @@ function HomeScreen({ navigation }) {
 	);
 }
 
-function SettingsScreen() {
-
-	const [selectedValue, setSelectedValue] = useState('')
-
-	if (1 > 0) {
-		getLanguage()
-	}
-
-	async function getLanguage() {
-		try {
-			const value = await AsyncStorage.getItem('lingua');
-			if (value !== null) {
-				setSelectedValue(selectedValue => value)
-			}
-		} catch (error) {
-
-		}
-	}
-
-	async function changeLanguage(itemValue) {
-		setSelectedValue(selectedValue => itemValue)
-		try {
-			await AsyncStorage.setItem(
-				'lingua',
-				itemValue
-			);
-		} catch (error) {
-			alert(error)
-		}
-	}
-
-	async function onShare() {
-		try {
-			const result = await Share.share({
-				message: 'Check out MathApp app that gives me free step-by-step instuctions, graphs and more. Download it here: https://play.google.com/store/apps/details?id=com.Giacomo.Mathapp',
-			});
-		} catch (error) {
-			alert(error.message);
-		}
-	};
-
-	async function writeReview() {
-		if (StoreReview.isAvailableAsync()) {
-			await StoreReview.requestReview()
-		}
-	}
-	return (
-		<View style={{ flex: 1, marginTop: StatusBar.currentHeight }}>
-			<View>
-				<Image source={require("./assets/icon.png")} style={styles.logo} />
-				<Text style={{ marginLeft: (windowWidth - 200) / 2, color: 'grey', marginBottom: 20 }}>Version: 3.2.0</Text>
-			</View>
-			<View style={{ marginLeft: 5 }}>
-				<Text style={{ fontSize: 30, fontWeight: 'bold' }}>Choose the language:{selectedValue}</Text>
-				<View style={styles.settingButton}>
-					<View style={{ top: 10 }}>
-						<MaterialIcons name="language" size={32} color="black" />
-					</View>
-					<Picker selectedValue={selectedValue} style={{ height: 50, width: windowWidth - 52 }} onValueChange={(itemValue, itemIndex) => changeLanguage(itemValue)}>
-						<Picker.Item label="English" value="en" />
-						<Picker.Item label="Italiano" value="it" />
-						<Picker.Item label="Deutsch" value="de" />
-						<Picker.Item label="Español" value="es" />
-						<Picker.Item label="Français" value="fr" />
-						<Picker.Item label="Português" value="pt" />
-						<Picker.Item label="Русский" value="ru" />
-						<Picker.Item label="简体中文" value="zh" />
-						<Picker.Item label="繁體中文" value="zh-Hant" />
-						<Picker.Item label="Bahasa Melayu" value="ms" />
-						<Picker.Item label="Bahasa Indonesia" value="id" />
-						<Picker.Item label="العربية" value="ar" />
-						<Picker.Item label="Türkçe" value="tr" />
-						<Picker.Item label="Polski" value="pl" />
-						<Picker.Item label="Nederlands" value="nl" />
-						<Picker.Item label="Slovenčina" value="sk" />
-						<Picker.Item label="Română" value="ro" />
-						<Picker.Item label="Tiếng Việt" value="vi" />
-						<Picker.Item label="ελληνικά" value="el" />
-						<Picker.Item label="ไทย" value="th" />
-					</Picker>
-				</View>
-			</View>
-			<Text />
-			<Text style={{ fontSize: 25, fontWeight: 'bold' }}>Consider to support MathApp by sharing with your friends and by writing a review</Text>
-			<TouchableOpacity style={{ alignSelf: 'center', padding: 10, borderColor: 'black', borderWidth: 1, borderRadius: 10, backgroundColor: 'white' }} onPress={() => onShare()}>
-				<Text style={{ fontSize: 25, fontWeight: 'bold' }}> Invite your Friends</Text>
-			</TouchableOpacity>
-			<TouchableOpacity style={{ alignSelf: 'center', padding: 10, marginTop: 10, borderColor: 'black', borderWidth: 1, borderRadius: 10, backgroundColor: 'white' }} onPress={() => writeReview()}>
-				<Text style={{ fontSize: 25, fontWeight: 'bold' }}> Write a Review</Text>
-			</TouchableOpacity>
-		</View>
-	);
-}
-
 function SolutionScreen({ route }) {
 
 	var [showFirstSteps, setShowFirstSteps] = useState(false);
@@ -662,37 +681,39 @@ function SolutionScreen({ route }) {
 		return (
 			<ScrollView>
 				<View>
-					<View style={[styles.card, { marginTop: 20 }]}>
-						<View>
-							<View style={{ padding: 10 }}>
-								<Text style={{ fontSize: 30, paddingLeft: 5 }}>{solutionContainer.firstTitle}</Text>
-								<MathJax html={"$\\LARGE{" + solutionContainer.firstSolution.slice(1, -1).split("$<br/>$").join("}$$\\LARGE{") + "}$"} />
-							</View>
-							{solutionContainer.stepFirstSolution == "" ?
-								<Text />
-								:
-								<TouchableOpacity onPress={() => setShowFirstSteps(!showFirstSteps)} style={styles.stepsButton}>
-									<AntDesign name={showFirstSteps ? "arrowdown" : "arrowup"} size={32} color="black" />
-									<Text style={{ fontSize: 20, paddingLeft: 5 }}>{showFirstSteps ? solutionContainer.hideStep : solutionContainer.viewStep}</Text>
-								</TouchableOpacity>
-							}
-							{showFirstSteps ?
-								<View style={{ padding: 8 }}>
-									<MathJax html={solutionContainer.stepFirstSolution} />
+					{(solutionContainer.firstTitle == "") || (solutionContainer.firstTitle == undefined) ?
+						<Text />
+						: <View style={[styles.card, { marginTop: 20 }]}>
+							<View>
+								<View style={{ padding: 10 }}>
+									<Text style={{ fontSize: 30, paddingLeft: 5 }}>{solutionContainer.firstTitle}</Text>
+									<MathJax size={"200%"} html={"$" + solutionContainer.firstSolution.slice(1, -1).split("$<br/>$").join("$$") + "$"} />
 								</View>
-								:
-								<View />
-							}
-						</View>
-					</View>
-					{solutionContainer.secondTitle == "" ?
+								{solutionContainer.stepFirstSolution == "" ?
+									<Text />
+									:
+									<TouchableOpacity onPress={() => setShowFirstSteps(!showFirstSteps)} style={styles.stepsButton}>
+										<AntDesign name={showFirstSteps ? "arrowdown" : "arrowup"} size={32} color="black" />
+										<Text style={{ fontSize: 20, paddingLeft: 5 }}>{showFirstSteps ? solutionContainer.hideStep : solutionContainer.viewStep}</Text>
+									</TouchableOpacity>
+								}
+								{showFirstSteps ?
+									<View style={{ padding: 8 }}>
+										<MathJax size={"100%"} html={solutionContainer.stepFirstSolution} />
+									</View>
+									:
+									<View />
+								}
+							</View>
+						</View>}
+					{(solutionContainer.secondTitle == "") || (solutionContainer.secondTitle == undefined) ?
 						<Text />
 						:
 						<View style={styles.card}>
 							<View>
 								<View style={{ padding: 10 }}>
 									<Text style={{ fontSize: 30, paddingLeft: 5 }}>{solutionContainer.secondTitle}</Text>
-									<MathJax html={"$\\LARGE{" + solutionContainer.secondSolution.slice(1, -1).split("$<br/>$").join("}$$\\LARGE{") + "}$"} />
+									<MathJax size={"200%"} html={"$" + solutionContainer.secondSolution.slice(1, -1).split("$<br/>$").join("$$") + "$"} />
 								</View>
 								{solutionContainer.stepSecondSolution == "" ?
 									<Text />
@@ -704,7 +725,7 @@ function SolutionScreen({ route }) {
 								}
 								{showSecondSteps ?
 									<View style={{ padding: 8 }}>
-										<MathJax html={solutionContainer.stepSecondSolution} />
+										<MathJax size={"100%"} html={solutionContainer.stepSecondSolution} />
 									</View>
 									:
 									<View />
@@ -734,6 +755,100 @@ function SolutionScreen({ route }) {
 	}
 }
 
+function HistoryScreen({ navigation }) {
+
+	var [history, setHistory] = useState([]);
+
+	useEffect(() => {
+		getHistory()
+	}, [])
+
+	async function getHistory() {
+		try {
+			const value = await AsyncStorage.getItem('history');
+			if (value !== null) {
+				var tempContainer = [];
+				var count = value.split(',').length;
+				for (var i = 1; i < count; i++) {
+					tempContainer.push(value.split(',')[i])
+				}
+				setHistory(history => tempContainer)
+			}
+		} catch (error) {
+
+		}
+	}
+	return (
+		<ScrollView>
+			<Text style={{ fontSize: 35, fontWeight: 'bold', left: 5, marginVertical: 5 }}>History</Text>
+			{history.map((history, i) => <ObjectRow text={history} key={i} navigation={navigation} />)}
+		</ScrollView>
+	)
+}
+
+function ObjectRow({ text, navigation }) {
+
+	var [hide, setHide] = useState(false);
+
+	function copyToTheClipboard() {
+		Clipboard.setString(text)
+		ToastAndroid.showWithGravityAndOffset(
+			"Copied",
+			ToastAndroid.SHORT,
+			ToastAndroid.BOTTOM,
+			25,
+			50
+		);
+	}
+
+	async function deleteElement() {
+		setHide(hide => true);
+		ToastAndroid.showWithGravityAndOffset(
+			"Delated",
+			ToastAndroid.SHORT,
+			ToastAndroid.BOTTOM,
+			25,
+			50
+		);
+		try {
+			var value = await AsyncStorage.getItem('history');
+			if (value !== null) {
+				console.log(value);
+			}
+		} catch (error) {
+
+		}
+		value = value.split("," + text).join("");
+		console.log(value);
+		try {
+			await AsyncStorage.setItem(
+				'history',
+				value
+			);
+		} catch (error) {
+			alert(error)
+		}
+	}
+
+	if (!hide) {
+		return (
+			<TouchableOpacity style={[styles.card, { flexDirection: 'row' }]} onPress={() => navigation.navigate("Home", { mathText: text })} onLongPress={() => copyToTheClipboard()}>
+				<View style={{ padding: 10, width: '90%' }}>
+					<MathJax size={"150%"} html={"$" + text + "$"} />
+				</View>
+				<TouchableOpacity style={{ justifyContent: 'center', alignContent: 'center' }} onPress={() => deleteElement()}>
+					<AntDesign name="delete" size={24} color="black" />
+				</TouchableOpacity>
+			</TouchableOpacity>
+		)
+	} else {
+		return (
+			<View />
+		)
+	}
+
+}
+
 const Stack = createNativeStackNavigator();
 
 function App() {
@@ -746,12 +861,12 @@ function App() {
 					options={{ headerShown: false }}
 				/>
 				<Stack.Screen
-					name="Settings"
-					component={SettingsScreen}
-				/>
-				<Stack.Screen
 					name="Solution"
 					component={SolutionScreen}
+				/>
+				<Stack.Screen
+					name="History"
+					component={HistoryScreen}
 				/>
 			</Stack.Navigator>
 		</NavigationContainer>
@@ -786,7 +901,6 @@ const styles = StyleSheet.create({
 	keyboardBotton: {
 		margin: 1,
 		width: windowWidth / 6 - 4,
-		height: '16%',
 		minHeight: 85,
 		borderRadius: 5,
 		justifyContent: 'center',
@@ -796,7 +910,7 @@ const styles = StyleSheet.create({
 		width: windowWidth,
 		backgroundColor: "#ededed",
 		flexDirection: 'row',
-		height: windowWidth / 5 - 6
+		height: 75
 	},
 	toolbarButton: {
 		width: windowWidth / 6,
@@ -811,21 +925,22 @@ const styles = StyleSheet.create({
 		alignItems: 'center',
 		justifyContent: 'center'
 	},
-	logo: {
-		height: 200,
-		width: 200,
-		alignSelf: 'center',
+	settingItem: {
+		backgroundColor: '#fff',
+		borderBottomWidth: 1,
+		borderBottomColor: '#E0E0E0',
+		height: 45,
+		flexDirection: 'row',
+		alignItems: 'center'
 	},
-	settingButton: {
-		flexDirection: "row",
-		borderColor: 'black',
-		borderWidth: 1,
-		width: windowWidth - 20,
-		borderRadius: 30,
-		paddingLeft: 5,
-		paddingRight: 5,
-		top: 10,
-		backgroundColor: 'white'
+	settingSeparator: {
+		height: 30,
+		backgroundColor: '#ededed'
+	},
+	settingText: {
+		fontSize: 22,
+		marginLeft: 10,
+		fontWeight: 'bold',
 	}
 });
 
