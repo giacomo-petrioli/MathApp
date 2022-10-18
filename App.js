@@ -1,23 +1,32 @@
-import { View, Text, StatusBar, TouchableOpacity, Share, Switch, Linking, Dimensions, StyleSheet, Clipboard, ActivityIndicator, ScrollView, ToastAndroid, Image } from 'react-native';
+import { View, Text, RefreshControl, TouchableOpacity, Share, Switch, Linking, Dimensions, StyleSheet, Clipboard, ActivityIndicator, ScrollView, ToastAndroid } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { VictoryChart, VictoryTheme, VictoryLine } from "victory-native";
+import { AntDesign, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from '@react-navigation/native';
-import { AntDesign , MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import React, { useState, useRef, useEffect, } from "react";
+import BottomSheet from "./localLibrary/bottomSheet/index";
 import Svg, { Rect, Line, Path } from 'react-native-svg';
 import { Picker } from '@react-native-picker/picker';
-import React, { useState, useRef, useEffect, } from "react";
-//import BottomSheet from "react-native-easy-bottomsheet"; for test
+import * as Progress from 'react-native-progress';
 import * as StoreReview from 'expo-store-review';
 import { WebView } from 'react-native-webview';
-//import MathJax from 'react-native-mathjax'; for test
-import MathJax from './localLibrary/mathJax'; //for eas build
-import BottomSheet from "./localLibrary/bottomSheet/index"; //for eas build
+import MathJax from './localLibrary/mathJax';
+import 'abortcontroller-polyfill';
 
 var windowWidth = Dimensions.get('window').width;
 var windowHeigth = Dimensions.get('window').height;
 
 function HomeScreen({ navigation, route }) {
+	React.useEffect(() => {
+		const unsubscribe = navigation.addListener('focus', () => {
+			ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT)
+		});
+
+		return unsubscribe;
+	}, [navigation]);
+
 	const webViewRef = useRef();
 
 	var [mainKeyboard, setMainKeyboard] = useState(true);
@@ -90,13 +99,9 @@ function HomeScreen({ navigation, route }) {
 		if (loading) {
 			return
 		}
-
 		if (text.length == 0) {
-			if (lingua == 'it') {
-				var message = "Inserisci Prima il Testo";
-			} else {
-				var message = "Enter the Text First";
-			}
+			if (lingua == 'it') var message = "Inserisci Prima il Testo";
+			else var message = "Enter the Text First";
 			ToastAndroid.showWithGravityAndOffset(
 				message,
 				ToastAndroid.SHORT,
@@ -136,16 +141,29 @@ function HomeScreen({ navigation, route }) {
 		} catch (error) {
 			var value = "en";
 		}
-		
+
 		var searchUrl = "https://mathapp-api-git-main-giacomo-petrioli.vercel.app/?text=" + testo + "&language=" + value;
-		var response = await fetch(searchUrl);
-		var htmlString = await response.text();
-		var solutionContainer = JSON.parse(htmlString);
 
-		updateHistory();
+		const controller = new AbortController();
+		const timeout = setTimeout(() => {
+			controller.abort();
+		}, 10000);
 
-		navigation.navigate("Solution", { solutionContainer: solutionContainer });
-		setPrevSolutionContainer(prevSolutionContainer => solutionContainer);
+		try {
+			const response = await fetch(searchUrl, { signal: controller.signal });
+			var htmlString = await response.text();
+			var solutionContainer = JSON.parse(htmlString);
+			updateHistory();
+
+			navigation.navigate("Solution", { solutionContainer: solutionContainer });
+			setPrevSolutionContainer(prevSolutionContainer => solutionContainer);
+		} catch (error) {
+			if (error.message == "Aborted") alert("Your Internet connection is absent or too slow")
+			else alert(error.message)
+		} finally {
+			clearTimeout(timeout);
+		}
+
 		setLoading(loading => false);
 	}
 
@@ -295,7 +313,7 @@ function HomeScreen({ navigation, route }) {
 				</ScrollView>
 			</BottomSheet>
 			<View style={{ position: 'absolute', marginTop: 30, marginLeft: windowWidth - 70 }}>
-				<TouchableOpacity onPress={() => setVisible(true)/*navigation.navigate('Settings')*/}>
+				<TouchableOpacity onPress={() => setVisible(true)}>
 					<AntDesign name="setting" size={40} color="darkgrey" />
 				</TouchableOpacity>
 			</View>
@@ -304,10 +322,20 @@ function HomeScreen({ navigation, route }) {
 					<MaterialCommunityIcons name="history" size={40} color="darkgrey" />
 				</TouchableOpacity>
 			</View>
-			<ActivityIndicator style={{ position: 'absolute', alignSelf: 'center', top: 30 }} animating={loading} color='#66ccff' size='large' />
+			<View style={{ position: 'absolute', alignSelf: 'center', top: 30 }}>
+				<TouchableOpacity onPress={() => navigation.navigate('Writing')}>
+					<MaterialCommunityIcons name="draw" size={40} color="darkgrey" />
+				</TouchableOpacity>
+			</View>
+
 			<View>
 				<View style={styles.countContainer} />
 				<View style={{ height: 200, padding: 10, marginTop: 50 }}>
+					{loading ?
+						<Progress.Bar style={{ position: 'absolute', left: 0, top: -30 }} color='#66ccff' width={windowWidth} animated={loading} indeterminate={loading} />
+						:
+						<View />
+					}
 					<WebView
 						ref={webViewRef}
 						onMessage={onMessage}
@@ -326,8 +354,6 @@ function HomeScreen({ navigation, route }) {
 								</math-field>
 							</div>
 							<script src="https://unpkg.com/mathlive/dist/mathlive.min.js"></script>
-							<script src="//unpkg.com/mathlive/dist/mathlive.min.js"></script>
-							<script defer src="//unpkg.com/mathlive/dist/mathlive.min.js"></script>
 							
 							</body>
 					
@@ -546,8 +572,10 @@ function HomeScreen({ navigation, route }) {
 										<Path d="M12.2266 19.7246C11.7656 20.002 11.2188 20.1406 10.5859 20.1406C9.73047 20.1406 9.03906 19.8633 8.51172 19.3086C7.98828 18.75 7.72656 18.0273 7.72656 17.1406C7.72656 16.1523 8.00977 15.3594 8.57617 14.7617C9.14258 14.1602 9.89844 13.8594 10.8438 13.8594C11.3711 13.8594 11.8359 13.957 12.2383 14.1523V15.1367C11.793 14.8242 11.3164 14.668 10.8086 14.668C10.1953 14.668 9.69141 14.8887 9.29688 15.3301C8.90625 15.7676 8.71094 16.3438 8.71094 17.0586C8.71094 17.7617 8.89453 18.3164 9.26172 18.7227C9.63281 19.1289 10.1289 19.332 10.75 19.332C11.2734 19.332 11.7656 19.1582 12.2266 18.8105V19.7246ZM16.1875 20.1406C15.3008 20.1406 14.5918 19.8613 14.0605 19.3027C13.5332 18.7402 13.2695 17.9961 13.2695 17.0703C13.2695 16.0625 13.5449 15.2754 14.0957 14.709C14.6465 14.1426 15.3906 13.8594 16.3281 13.8594C17.2227 13.8594 17.9199 14.1348 18.4199 14.6855C18.9238 15.2363 19.1758 16 19.1758 16.9766C19.1758 17.9336 18.9043 18.7012 18.3613 19.2793C17.8223 19.8535 17.0977 20.1406 16.1875 20.1406ZM16.2578 14.668C15.6406 14.668 15.1523 14.8789 14.793 15.3008C14.4336 15.7188 14.2539 16.2969 14.2539 17.0352C14.2539 17.7461 14.4355 18.3066 14.7988 18.7168C15.1621 19.127 15.6484 19.332 16.2578 19.332C16.8789 19.332 17.3555 19.1309 17.6875 18.7285C18.0234 18.3262 18.1914 17.7539 18.1914 17.0117C18.1914 16.2617 18.0234 15.6836 17.6875 15.2773C17.3555 14.8711 16.8789 14.668 16.2578 14.668ZM20.3477 19.7832V18.752C20.8711 19.1387 21.4473 19.332 22.0762 19.332C22.9199 19.332 23.3418 19.0508 23.3418 18.4883C23.3418 18.3281 23.3047 18.1934 23.2305 18.084C23.1602 17.9707 23.0625 17.8711 22.9375 17.7852C22.8164 17.6992 22.6719 17.623 22.5039 17.5566C22.3398 17.4863 22.1621 17.4141 21.9707 17.3398C21.7051 17.2344 21.4707 17.1289 21.2676 17.0234C21.0684 16.9141 20.9004 16.793 20.7637 16.6602C20.6309 16.5234 20.5293 16.3691 20.459 16.1973C20.3926 16.0254 20.3594 15.8242 20.3594 15.5938C20.3594 15.3125 20.4238 15.0645 20.5527 14.8496C20.6816 14.6309 20.8535 14.4492 21.0684 14.3047C21.2832 14.1562 21.5273 14.0449 21.8008 13.9707C22.0781 13.8965 22.3633 13.8594 22.6562 13.8594C23.1758 13.8594 23.6406 13.9492 24.0508 14.1289V15.1016C23.6094 14.8125 23.1016 14.668 22.5273 14.668C22.3477 14.668 22.1855 14.6895 22.041 14.7324C21.8965 14.7715 21.7715 14.8281 21.666 14.9023C21.5645 14.9766 21.4844 15.0664 21.4258 15.1719C21.3711 15.2734 21.3438 15.3867 21.3438 15.5117C21.3438 15.668 21.3711 15.7988 21.4258 15.9043C21.4844 16.0098 21.5684 16.1035 21.6777 16.1855C21.7871 16.2676 21.9199 16.3418 22.0762 16.4082C22.2324 16.4746 22.4102 16.5469 22.6094 16.625C22.875 16.7266 23.1133 16.832 23.3242 16.9414C23.5352 17.0469 23.7148 17.168 23.8633 17.3047C24.0117 17.4375 24.125 17.5918 24.2031 17.7676C24.2852 17.9434 24.3262 18.1523 24.3262 18.3945C24.3262 18.6914 24.2598 18.9492 24.127 19.168C23.998 19.3867 23.8242 19.5684 23.6055 19.7129C23.3867 19.8574 23.1348 19.9648 22.8496 20.0352C22.5645 20.1055 22.2656 20.1406 21.9531 20.1406C21.3359 20.1406 20.8008 20.0215 20.3477 19.7832Z" fill="black" />
 									</Svg>
 								</TouchableOpacity>
-								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("a")}>
-									<Text style={{ fontSize: 30, left: 25 }}>a</Text>
+								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("csc(#0)")}>
+									<Svg width="64" height="60" viewBox="0 0 32 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+										<Path d="M12.4707 19.7246C12.0098 20.002 11.4629 20.1406 10.8301 20.1406C9.97461 20.1406 9.2832 19.8633 8.75586 19.3086C8.23242 18.75 7.9707 18.0273 7.9707 17.1406C7.9707 16.1523 8.25391 15.3594 8.82031 14.7617C9.38672 14.1602 10.1426 13.8594 11.0879 13.8594C11.6152 13.8594 12.0801 13.957 12.4824 14.1523V15.1367C12.0371 14.8242 11.5605 14.668 11.0527 14.668C10.4395 14.668 9.93555 14.8887 9.54102 15.3301C9.15039 15.7676 8.95508 16.3438 8.95508 17.0586C8.95508 17.7617 9.13867 18.3164 9.50586 18.7227C9.87695 19.1289 10.373 19.332 10.9941 19.332C11.5176 19.332 12.0098 19.1582 12.4707 18.8105V19.7246ZM13.5605 19.7832V18.752C14.084 19.1387 14.6602 19.332 15.2891 19.332C16.1328 19.332 16.5547 19.0508 16.5547 18.4883C16.5547 18.3281 16.5176 18.1934 16.4434 18.084C16.373 17.9707 16.2754 17.8711 16.1504 17.7852C16.0293 17.6992 15.8848 17.623 15.7168 17.5566C15.5527 17.4863 15.375 17.4141 15.1836 17.3398C14.918 17.2344 14.6836 17.1289 14.4805 17.0234C14.2812 16.9141 14.1133 16.793 13.9766 16.6602C13.8438 16.5234 13.7422 16.3691 13.6719 16.1973C13.6055 16.0254 13.5723 15.8242 13.5723 15.5938C13.5723 15.3125 13.6367 15.0645 13.7656 14.8496C13.8945 14.6309 14.0664 14.4492 14.2812 14.3047C14.4961 14.1562 14.7402 14.0449 15.0137 13.9707C15.291 13.8965 15.5762 13.8594 15.8691 13.8594C16.3887 13.8594 16.8535 13.9492 17.2637 14.1289V15.1016C16.8223 14.8125 16.3145 14.668 15.7402 14.668C15.5605 14.668 15.3984 14.6895 15.2539 14.7324C15.1094 14.7715 14.9844 14.8281 14.8789 14.9023C14.7773 14.9766 14.6973 15.0664 14.6387 15.1719C14.584 15.2734 14.5566 15.3867 14.5566 15.5117C14.5566 15.668 14.584 15.7988 14.6387 15.9043C14.6973 16.0098 14.7812 16.1035 14.8906 16.1855C15 16.2676 15.1328 16.3418 15.2891 16.4082C15.4453 16.4746 15.623 16.5469 15.8223 16.625C16.0879 16.7266 16.3262 16.832 16.5371 16.9414C16.748 17.0469 16.9277 17.168 17.0762 17.3047C17.2246 17.4375 17.3379 17.5918 17.416 17.7676C17.498 17.9434 17.5391 18.1523 17.5391 18.3945C17.5391 18.6914 17.4727 18.9492 17.3398 19.168C17.2109 19.3867 17.0371 19.5684 16.8184 19.7129C16.5996 19.8574 16.3477 19.9648 16.0625 20.0352C15.7773 20.1055 15.4785 20.1406 15.166 20.1406C14.5488 20.1406 14.0137 20.0215 13.5605 19.7832ZM23.1113 19.7246C22.6504 20.002 22.1035 20.1406 21.4707 20.1406C20.6152 20.1406 19.9238 19.8633 19.3965 19.3086C18.873 18.75 18.6113 18.0273 18.6113 17.1406C18.6113 16.1523 18.8945 15.3594 19.4609 14.7617C20.0273 14.1602 20.7832 13.8594 21.7285 13.8594C22.2559 13.8594 22.7207 13.957 23.123 14.1523V15.1367C22.6777 14.8242 22.2012 14.668 21.6934 14.668C21.0801 14.668 20.5762 14.8887 20.1816 15.3301C19.791 15.7676 19.5957 16.3438 19.5957 17.0586C19.5957 17.7617 19.7793 18.3164 20.1465 18.7227C20.5176 19.1289 21.0137 19.332 21.6348 19.332C22.1582 19.332 22.6504 19.1582 23.1113 18.8105V19.7246Z" fill="black" />
+									</Svg>
 								</TouchableOpacity>
 							</View>
 							<View style={styles.keyboradColumn}>
@@ -566,8 +594,10 @@ function HomeScreen({ navigation, route }) {
 										<Path d="M9.70898 19.7832V18.752C10.2324 19.1387 10.8086 19.332 11.4375 19.332C12.2812 19.332 12.7031 19.0508 12.7031 18.4883C12.7031 18.3281 12.666 18.1934 12.5918 18.084C12.5215 17.9707 12.4238 17.8711 12.2988 17.7852C12.1777 17.6992 12.0332 17.623 11.8652 17.5566C11.7012 17.4863 11.5234 17.4141 11.332 17.3398C11.0664 17.2344 10.832 17.1289 10.6289 17.0234C10.4297 16.9141 10.2617 16.793 10.125 16.6602C9.99219 16.5234 9.89062 16.3691 9.82031 16.1973C9.75391 16.0254 9.7207 15.8242 9.7207 15.5938C9.7207 15.3125 9.78516 15.0645 9.91406 14.8496C10.043 14.6309 10.2148 14.4492 10.4297 14.3047C10.6445 14.1562 10.8887 14.0449 11.1621 13.9707C11.4395 13.8965 11.7246 13.8594 12.0176 13.8594C12.5371 13.8594 13.002 13.9492 13.4121 14.1289V15.1016C12.9707 14.8125 12.4629 14.668 11.8887 14.668C11.709 14.668 11.5469 14.6895 11.4023 14.7324C11.2578 14.7715 11.1328 14.8281 11.0273 14.9023C10.9258 14.9766 10.8457 15.0664 10.7871 15.1719C10.7324 15.2734 10.7051 15.3867 10.7051 15.5117C10.7051 15.668 10.7324 15.7988 10.7871 15.9043C10.8457 16.0098 10.9297 16.1035 11.0391 16.1855C11.1484 16.2676 11.2812 16.3418 11.4375 16.4082C11.5938 16.4746 11.7715 16.5469 11.9707 16.625C12.2363 16.7266 12.4746 16.832 12.6855 16.9414C12.8965 17.0469 13.0762 17.168 13.2246 17.3047C13.373 17.4375 13.4863 17.5918 13.5645 17.7676C13.6465 17.9434 13.6875 18.1523 13.6875 18.3945C13.6875 18.6914 13.6211 18.9492 13.4883 19.168C13.3594 19.3867 13.1855 19.5684 12.9668 19.7129C12.748 19.8574 12.4961 19.9648 12.2109 20.0352C11.9258 20.1055 11.627 20.1406 11.3145 20.1406C10.6973 20.1406 10.1621 20.0215 9.70898 19.7832ZM15.6621 12.4766C15.4902 12.4766 15.3438 12.418 15.2227 12.3008C15.1016 12.1836 15.041 12.0352 15.041 11.8555C15.041 11.6758 15.1016 11.5273 15.2227 11.4102C15.3438 11.2891 15.4902 11.2285 15.6621 11.2285C15.8379 11.2285 15.9863 11.2891 16.1074 11.4102C16.2324 11.5273 16.2949 11.6758 16.2949 11.8555C16.2949 12.0273 16.2324 12.1738 16.1074 12.2949C15.9863 12.416 15.8379 12.4766 15.6621 12.4766ZM16.1309 20H15.1699V14H16.1309V20ZM23.0566 20H22.0957V16.5781C22.0957 15.3047 21.6309 14.668 20.7012 14.668C20.2207 14.668 19.8223 14.8496 19.5059 15.2129C19.1934 15.5723 19.0371 16.0273 19.0371 16.5781V20H18.0762V14H19.0371V14.9961H19.0605C19.5137 14.2383 20.1699 13.8594 21.0293 13.8594C21.6855 13.8594 22.1875 14.0723 22.5352 14.498C22.8828 14.9199 23.0566 15.5312 23.0566 16.332V20Z" fill="black" />
 									</Svg>
 								</TouchableOpacity>
-								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("b")}>
-									<Text style={{ fontSize: 30, left: 25 }}>b</Text>
+								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("sec(#0)")}>
+									<Svg width="64" height="60" viewBox="0 0 32 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+										<Path d="M7.64844 19.7832V18.752C8.17188 19.1387 8.74805 19.332 9.37695 19.332C10.2207 19.332 10.6426 19.0508 10.6426 18.4883C10.6426 18.3281 10.6055 18.1934 10.5312 18.084C10.4609 17.9707 10.3633 17.8711 10.2383 17.7852C10.1172 17.6992 9.97266 17.623 9.80469 17.5566C9.64062 17.4863 9.46289 17.4141 9.27148 17.3398C9.00586 17.2344 8.77148 17.1289 8.56836 17.0234C8.36914 16.9141 8.20117 16.793 8.06445 16.6602C7.93164 16.5234 7.83008 16.3691 7.75977 16.1973C7.69336 16.0254 7.66016 15.8242 7.66016 15.5938C7.66016 15.3125 7.72461 15.0645 7.85352 14.8496C7.98242 14.6309 8.1543 14.4492 8.36914 14.3047C8.58398 14.1562 8.82812 14.0449 9.10156 13.9707C9.37891 13.8965 9.66406 13.8594 9.95703 13.8594C10.4766 13.8594 10.9414 13.9492 11.3516 14.1289V15.1016C10.9102 14.8125 10.4023 14.668 9.82812 14.668C9.64844 14.668 9.48633 14.6895 9.3418 14.7324C9.19727 14.7715 9.07227 14.8281 8.9668 14.9023C8.86523 14.9766 8.78516 15.0664 8.72656 15.1719C8.67188 15.2734 8.64453 15.3867 8.64453 15.5117C8.64453 15.668 8.67188 15.7988 8.72656 15.9043C8.78516 16.0098 8.86914 16.1035 8.97852 16.1855C9.08789 16.2676 9.2207 16.3418 9.37695 16.4082C9.5332 16.4746 9.71094 16.5469 9.91016 16.625C10.1758 16.7266 10.4141 16.832 10.625 16.9414C10.8359 17.0469 11.0156 17.168 11.1641 17.3047C11.3125 17.4375 11.4258 17.5918 11.5039 17.7676C11.5859 17.9434 11.627 18.1523 11.627 18.3945C11.627 18.6914 11.5605 18.9492 11.4277 19.168C11.2988 19.3867 11.125 19.5684 10.9062 19.7129C10.6875 19.8574 10.4355 19.9648 10.1504 20.0352C9.86523 20.1055 9.56641 20.1406 9.25391 20.1406C8.63672 20.1406 8.10156 20.0215 7.64844 19.7832ZM17.9316 17.2402H13.6953C13.7109 17.9082 13.8906 18.4238 14.2344 18.7871C14.5781 19.1504 15.0508 19.332 15.6523 19.332C16.3281 19.332 16.9492 19.1094 17.5156 18.6641V19.5664C16.9883 19.9492 16.291 20.1406 15.4238 20.1406C14.5762 20.1406 13.9102 19.8691 13.4258 19.3262C12.9414 18.7793 12.6992 18.0117 12.6992 17.0234C12.6992 16.0898 12.9629 15.3301 13.4902 14.7441C14.0215 14.1543 14.6797 13.8594 15.4648 13.8594C16.25 13.8594 16.8574 14.1133 17.2871 14.6211C17.7168 15.1289 17.9316 15.834 17.9316 16.7363V17.2402ZM16.9473 16.4258C16.9434 15.8711 16.8086 15.4395 16.543 15.1309C16.2812 14.8223 15.916 14.668 15.4473 14.668C14.9941 14.668 14.6094 14.8301 14.293 15.1543C13.9766 15.4785 13.7812 15.9023 13.707 16.4258H16.9473ZM23.4805 19.7246C23.0195 20.002 22.4727 20.1406 21.8398 20.1406C20.9844 20.1406 20.293 19.8633 19.7656 19.3086C19.2422 18.75 18.9805 18.0273 18.9805 17.1406C18.9805 16.1523 19.2637 15.3594 19.8301 14.7617C20.3965 14.1602 21.1523 13.8594 22.0977 13.8594C22.625 13.8594 23.0898 13.957 23.4922 14.1523V15.1367C23.0469 14.8242 22.5703 14.668 22.0625 14.668C21.4492 14.668 20.9453 14.8887 20.5508 15.3301C20.1602 15.7676 19.9648 16.3438 19.9648 17.0586C19.9648 17.7617 20.1484 18.3164 20.5156 18.7227C20.8867 19.1289 21.3828 19.332 22.0039 19.332C22.5273 19.332 23.0195 19.1582 23.4805 18.8105V19.7246Z" fill="black" />
+									</Svg>
 								</TouchableOpacity>
 							</View>
 							<View style={styles.keyboradColumn}>
@@ -588,8 +618,10 @@ function HomeScreen({ navigation, route }) {
 										<Path d="M10.7715 19.9415C10.5449 20.0665 10.2461 20.129 9.875 20.129C8.82422 20.129 8.29883 19.5431 8.29883 18.3712V14.8204H7.26758V14.0001H8.29883V12.5353L9.25977 12.2247V14.0001H10.7715V14.8204H9.25977V18.2013C9.25977 18.6036 9.32812 18.8907 9.46484 19.0626C9.60156 19.2345 9.82812 19.3204 10.1445 19.3204C10.3867 19.3204 10.5957 19.254 10.7715 19.1212V19.9415ZM16.3496 20.0001H15.3887V19.0626H15.3652C14.9473 19.7814 14.332 20.1407 13.5195 20.1407C12.9219 20.1407 12.4531 19.9825 12.1133 19.6661C11.7773 19.3497 11.6094 18.9298 11.6094 18.4064C11.6094 17.2853 12.2695 16.6329 13.5898 16.4493L15.3887 16.1974C15.3887 15.1779 14.9766 14.6681 14.1523 14.6681C13.4297 14.6681 12.7773 14.9142 12.1953 15.4064V14.422C12.7852 14.047 13.4648 13.8595 14.2344 13.8595C15.6445 13.8595 16.3496 14.6056 16.3496 16.0978V20.0001ZM15.3887 16.965L13.9414 17.1642C13.4961 17.2267 13.1602 17.338 12.9336 17.4982C12.707 17.6544 12.5938 17.9337 12.5938 18.3361C12.5938 18.629 12.6973 18.8693 12.9043 19.0568C13.1152 19.2404 13.3945 19.3322 13.7422 19.3322C14.2188 19.3322 14.6113 19.1661 14.9199 18.8341C15.2324 18.4982 15.3887 18.0743 15.3887 17.5626V16.965ZM23.1406 20.0001H22.1797V16.5782C22.1797 15.3048 21.7148 14.6681 20.7852 14.6681C20.3047 14.6681 19.9062 14.8497 19.5898 15.213C19.2773 15.5724 19.1211 16.0275 19.1211 16.5782V20.0001H18.1602V14.0001H19.1211V14.9962H19.1445C19.5977 14.2384 20.2539 13.8595 21.1133 13.8595C21.7695 13.8595 22.2715 14.0724 22.6191 14.4982C22.9668 14.92 23.1406 15.5314 23.1406 16.3322V20.0001Z" fill="black" />
 									</Svg>
 								</TouchableOpacity>
-								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("c")}>
-									<Text style={{ fontSize: 30, left: 25 }}>c</Text>
+								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("cot(#0)")}>
+									<Svg width="64" height="60" viewBox="0 0 32 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+										<Path d="M12.2422 19.7247C11.7812 20.0021 11.2344 20.1407 10.6016 20.1407C9.74609 20.1407 9.05469 19.8634 8.52734 19.3087C8.00391 18.7501 7.74219 18.0275 7.74219 17.1407C7.74219 16.1525 8.02539 15.3595 8.5918 14.7618C9.1582 14.1603 9.91406 13.8595 10.8594 13.8595C11.3867 13.8595 11.8516 13.9572 12.2539 14.1525V15.1368C11.8086 14.8243 11.332 14.6681 10.8242 14.6681C10.2109 14.6681 9.70703 14.8888 9.3125 15.3302C8.92188 15.7677 8.72656 16.3439 8.72656 17.0587C8.72656 17.7618 8.91016 18.3165 9.27734 18.7228C9.64844 19.129 10.1445 19.3322 10.7656 19.3322C11.2891 19.3322 11.7812 19.1583 12.2422 18.8107V19.7247ZM16.2031 20.1407C15.3164 20.1407 14.6074 19.8615 14.0762 19.3029C13.5488 18.7404 13.2852 17.9962 13.2852 17.0704C13.2852 16.0626 13.5605 15.2755 14.1113 14.7091C14.6621 14.1427 15.4062 13.8595 16.3438 13.8595C17.2383 13.8595 17.9355 14.1349 18.4355 14.6857C18.9395 15.2365 19.1914 16.0001 19.1914 16.9767C19.1914 17.9337 18.9199 18.7013 18.377 19.2794C17.8379 19.8536 17.1133 20.1407 16.2031 20.1407ZM16.2734 14.6681C15.6562 14.6681 15.168 14.879 14.8086 15.3009C14.4492 15.7189 14.2695 16.297 14.2695 17.0353C14.2695 17.7462 14.4512 18.3068 14.8145 18.7169C15.1777 19.1271 15.6641 19.3322 16.2734 19.3322C16.8945 19.3322 17.3711 19.131 17.7031 18.7286C18.0391 18.3263 18.207 17.754 18.207 17.0118C18.207 16.2618 18.0391 15.6837 17.7031 15.2775C17.3711 14.8712 16.8945 14.6681 16.2734 14.6681ZM23.5098 19.9415C23.2832 20.0665 22.9844 20.129 22.6133 20.129C21.5625 20.129 21.0371 19.5431 21.0371 18.3712V14.8204H20.0059V14.0001H21.0371V12.5353L21.998 12.2247V14.0001H23.5098V14.8204H21.998V18.2013C21.998 18.6036 22.0664 18.8907 22.2031 19.0626C22.3398 19.2345 22.5664 19.3204 22.8828 19.3204C23.125 19.3204 23.334 19.254 23.5098 19.1212V19.9415Z" fill="black" />
+									</Svg>
 								</TouchableOpacity>
 							</View>
 							<View style={styles.keyboradColumn}>
@@ -608,8 +640,8 @@ function HomeScreen({ navigation, route }) {
 										<Path d="M8.77391 19H9.79344V10.5449H8.77391V19ZM13.9258 19.1055C15.6074 19.1055 16.7441 17.8926 16.7441 15.9531C16.7441 14.0078 15.6074 12.8008 13.9258 12.8008C12.2383 12.8008 11.1016 14.0078 11.1016 15.9531C11.1016 17.8926 12.2383 19.1055 13.9258 19.1055ZM13.9258 18.209C12.8477 18.209 12.1387 17.3887 12.1387 15.9531C12.1387 14.5176 12.8477 13.6973 13.9258 13.6973C15.0039 13.6973 15.707 14.5176 15.707 15.9531C15.707 17.3887 15.0039 18.209 13.9258 18.209ZM20.5191 21.2969C22.2007 21.2969 23.273 20.3301 23.273 18.877V12.9062H22.3003V13.9316H22.2827C21.8784 13.2227 21.1636 12.8008 20.3023 12.8008C18.7261 12.8008 17.7066 14.0195 17.7066 15.9297C17.7066 17.8223 18.7261 19.0469 20.2788 19.0469C21.1343 19.0469 21.855 18.6133 22.23 17.9512H22.2534V18.9121C22.2534 19.8203 21.6148 20.4297 20.5601 20.4297C19.7984 20.4297 19.1948 20.0605 18.9956 19.5039H17.9468C18.1167 20.541 19.1773 21.2969 20.5191 21.2969ZM20.4839 18.1504C19.4351 18.1504 18.7495 17.2949 18.7495 15.9297C18.7495 14.5645 19.4351 13.6973 20.4839 13.6973C21.5445 13.6973 22.2534 14.5879 22.2534 15.9297C22.2534 17.2715 21.5445 18.1504 20.4839 18.1504Z" fill="#444444" />
 									</Svg>
 								</TouchableOpacity>
-								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("d")}>
-									<Text style={{ fontSize: 30, left: 25 }}>d</Text>
+								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("a")}>
+									<Text style={{ fontSize: 30, left: 25 }}>a</Text>
 								</TouchableOpacity>
 							</View>
 							<View style={styles.keyboradColumn}>
@@ -628,8 +660,8 @@ function HomeScreen({ navigation, route }) {
 										<Path d="M12.2112 19H13.2307V10.5449H12.2112V19ZM14.8377 19H15.8572V15.4141C15.8572 14.3828 16.4841 13.7031 17.4451 13.7031C18.3826 13.7031 18.8455 14.2422 18.8455 15.2266V19H19.865V15.0449C19.865 13.6621 19.0916 12.8008 17.7556 12.8008C16.8123 12.8008 16.1619 13.2227 15.822 13.8789H15.7986V12.9062H14.8377V19Z" fill="#444444" />
 									</Svg>
 								</TouchableOpacity>
-								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("e")}>
-									<Text style={{ fontSize: 30, left: 25 }}>e</Text>
+								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("b")}>
+									<Text style={{ fontSize: 30, left: 25 }}>b</Text>
 								</TouchableOpacity>
 							</View>
 							<View style={styles.keyboradColumn}>
@@ -649,8 +681,8 @@ function HomeScreen({ navigation, route }) {
 										<Path d="M19.9814 17.8604H13.627C13.6504 18.8623 13.9199 19.6357 14.4355 20.1807C14.9512 20.7256 15.6602 20.998 16.5625 20.998C17.5762 20.998 18.5078 20.6641 19.3574 19.9961V21.3496C18.5664 21.9238 17.5205 22.2109 16.2197 22.2109C14.9482 22.2109 13.9492 21.8037 13.2227 20.9893C12.4961 20.1689 12.1328 19.0176 12.1328 17.5352C12.1328 16.1348 12.5283 14.9951 13.3193 14.1162C14.1162 13.2314 15.1035 12.7891 16.2812 12.7891C17.459 12.7891 18.3701 13.1699 19.0146 13.9316C19.6592 14.6934 19.9814 15.751 19.9814 17.1045V17.8604ZM18.5049 16.6387C18.499 15.8066 18.2969 15.1592 17.8984 14.6963C17.5059 14.2334 16.958 14.002 16.2549 14.002C15.5752 14.002 14.998 14.2451 14.5234 14.7314C14.0488 15.2178 13.7559 15.8535 13.6445 16.6387H18.5049Z" fill="#444444" />
 									</Svg>
 								</TouchableOpacity>
-								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("f")}>
-									<Text style={{ fontSize: 30, left: 25 }}>f</Text>
+								<TouchableOpacity style={[styles.keyboardBotton, { backgroundColor: 'lightgray' }]} onPress={() => inserisci("c")}>
+									<Text style={{ fontSize: 30, left: 25 }}>c</Text>
 								</TouchableOpacity>
 							</View>
 						</View>}
@@ -813,13 +845,12 @@ function ObjectRow({ text, navigation }) {
 		try {
 			var value = await AsyncStorage.getItem('history');
 			if (value !== null) {
-				console.log(value);
+
 			}
 		} catch (error) {
 
 		}
 		value = value.split("," + text).join("");
-		console.log(value);
 		try {
 			await AsyncStorage.setItem(
 				'history',
@@ -849,6 +880,100 @@ function ObjectRow({ text, navigation }) {
 
 }
 
+function WritingScreen({ navigation }) {
+
+	const webViewRef = useRef();
+	var [text, setText] = useState();
+	var [refreshing, setRefrescing] = useState(false);
+
+	useEffect(() => {
+		ScreenOrientation.lockAsync(ScreenOrientation.Orientation.PORTRAIT_UP)
+	}, [])
+
+	function onMessage(data) {
+		if (data.nativeEvent.data == "solve") {
+			solveEquation();
+			return
+		}
+		setText(data.nativeEvent.data);
+	}
+
+	async function solveEquation() {
+		if (text.length == 0) {
+			ToastAndroid.showWithGravityAndOffset(
+				"Enter the Text First",
+				ToastAndroid.SHORT,
+				ToastAndroid.BOTTOM,
+				25,
+				50
+			);
+			return
+		}
+
+		var testo = text;
+		setRefrescing(refreshing => true);
+
+		var testo = testo.split("\\").join("%60");
+		var testo = testo.split("%").join("%25");
+		var testo = testo.split("{").join("%7B%20");
+		var testo = testo.split('}').join('%20%20%7D');
+		var testo = testo.split('+').join('%2B');
+		var testo = testo.split("×").join("%20%60times%20%20");
+		var testo = testo.split(":").join("%20%60div%20%20");
+		var testo = testo.split("=").join("%20%3D%20%20");
+		var testo = testo.split(">").join("%20>%20%20");
+		var testo = testo.split("<").join("%20<%20%20");
+		var testo = testo.split("|").join("%7C");
+		var testo = testo.split(",").join(".");
+
+		try {
+			var value = await AsyncStorage.getItem('lingua');
+			setLingua(lingua => value);
+		} catch (error) {
+			var value = "en";
+		}
+
+		var searchUrl = "https://mathapp-api-git-main-giacomo-petrioli.vercel.app/?text=" + testo + "&language=" + value;
+
+		const controller = new AbortController();
+		const timeout = setTimeout(() => {
+			controller.abort();
+		}, 10000);
+
+		try {
+			const response = await fetch(searchUrl, { signal: controller.signal });
+			var htmlString = await response.text();
+			var solutionContainer = JSON.parse(htmlString);
+			setRefrescing(refreshing => false);
+
+
+			navigation.navigate("Solution", { solutionContainer: solutionContainer });
+		} catch (error) {
+			if (error.message == "Aborted") alert("Your Internet connection is absent or too slow")
+			else alert(error.message)
+		} finally {
+			clearTimeout(timeout);
+		}
+	}
+
+	return (
+		<View style={{ flex: 1 }}>
+			{refreshing ?
+				<Progress.Bar color='#66ccff' width={windowHeigth} animated={refreshing} indeterminate={refreshing} />
+				:
+				<View />
+			}
+			<WebView
+				ref={webViewRef}
+				onMessage={onMessage}
+				scrollEnabled={false}
+				textZoom={100}
+				source={{ uri: "https://giacomo-petrioli.github.io/DrawMathRecognition/" }}
+			/>
+		</View>
+	)
+}
+
 const Stack = createNativeStackNavigator();
 
 function App() {
@@ -867,6 +992,11 @@ function App() {
 				<Stack.Screen
 					name="History"
 					component={HistoryScreen}
+				/>
+				<Stack.Screen
+					name="Writing"
+					component={WritingScreen}
+					options={{ animation: 'none' }}
 				/>
 			</Stack.Navigator>
 		</NavigationContainer>
