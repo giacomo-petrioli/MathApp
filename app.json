@@ -2,8 +2,7 @@
   "expo": {
     "name": "MathApp",
     "slug": "MathApp",
-    "version": "3.2.0",
-    "orientation": "portrait",
+    "version": "3.2.1",
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",
@@ -17,7 +16,7 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
     },
     "android": {
       "adaptiveIcon": {
@@ -25,8 +24,8 @@
         "backgroundColor": "#5ce1e6"
       },
       "package": "com.Giacomo.Mathapp",
-      "permissions" : [],
-      "versionCode": 15
+      "permissions": [],
+      "versionCode": 16
     },
     "web": {
       "favicon": "./assets/favicon.png"
